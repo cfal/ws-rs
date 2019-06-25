@@ -1153,7 +1153,28 @@ where
 
         trace!("Connection to {} is now closing.", self.peer_addr());
 
-        self.check_events();
+        loop {
+            self.check_events();
+            if !self.events.is_writable() {
+                break;
+            }
+            if self.write().is_err() {
+                break;
+            }
+            self.events.remove(Ready::writable());
+            self.check_events();
+        }
+        self.events = Ready::empty();
+
+        match self.socket {
+            Stream::Tcp(ref tcp_stream) => {
+                tcp_stream.shutdown(std::net::Shutdown::Both).unwrap();
+            }
+            #[cfg(any(feature = "ssl", feature = "nativetls"))]
+            Stream::Tls(ref tls_stream) => {
+                tls_stream.shutdown().unwrap();
+            }
+        }
         Ok(())
     }
 
